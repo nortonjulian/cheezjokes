@@ -73,52 +73,67 @@ import "./JokeList.css";
 
 
 class JokeList extends Component {
+  static defaultProps = {
+    numJokesToGet: 10
+  };
+
   constructor(props) {
     super(props);
     this.state = {
-      jokes: []
+      jokes: [],
+      loading: false
     };
+
     this.generateNewJokes = this.generateNewJokes.bind(this);
+    this.resetVotes = this.resetVotes.bind(this);
     this.vote = this.vote.bind(this);
   }
 
   componentDidMount() {
-    if (this.state.jokes.length === 0) {
-      this.getJokes();
-    }
+    this.getJokes();
   }
 
   async getJokes() {
-    const { numJokesToGet } = this.props;
-    const { jokes } = this.state;
-    let j = [...jokes];
-    let seenJokes = new Set();
     try {
-      while (j.length < numJokesToGet) {
-        let res = await axios.get("https://icanhazdadjoke.com", {
+      this.setState({ loading: true });
+
+      const { numJokesToGet } = this.props;
+      const { jokes } = this.state;
+      let seenJokes = new Set(jokes.map(j => j.id));
+
+      while (jokes.length < numJokesToGet) {
+        const res = await axios.get("https://icanhazdadjoke.com", {
           headers: { Accept: "application/json" }
         });
-        let { status, ...jokeObj } = res.data;
+        const { status, ...joke } = res.data;
 
-        if (!seenJokes.has(jokeObj.id)) {
-          seenJokes.add(jokeObj.id);
-          j.push({ ...jokeObj, votes: 0 });
+        if (!seenJokes.has(joke.id)) {
+          seenJokes.add(joke.id);
+          jokes.push({ ...joke, votes: 0 });
         } else {
-          console.error("duplicate found!");
+          console.log("Duplicate joke found!");
         }
       }
-      this.setState({ jokes: j });
+
+      this.setState({ jokes, loading: false });
     } catch (e) {
       console.log(e);
+      this.setState({ loading: false });
     }
   }
 
   generateNewJokes() {
-    this.setState({ jokes: [] }, () => this.getJokes());
+    this.setState({ jokes: [] }, this.getJokes);
+  }
+
+  resetVotes() {
+    this.setState(prevState => ({
+      jokes: prevState.jokes.map(j => ({ ...j, votes: 0 }))
+    }));
   }
 
   vote(id, delta) {
-    this.setState((prevState) => ({
+    this.setState(prevState => ({
       jokes: prevState.jokes.map(j =>
         j.id === id ? { ...j, votes: j.votes + delta } : j
       )
@@ -126,25 +141,41 @@ class JokeList extends Component {
   }
 
   render() {
-    const { jokes } = this.state;
+    const { jokes, loading } = this.state;
 
-    if (jokes.length) {
-      let sortedJokes = [...jokes].sort((a, b) => b.votes - a.votes);
+    const sortedJokes = [...jokes].sort((a, b) => b.votes - a.votes);
+    const allLocked = sortedJokes.every(j => j.locked);
 
-      return (
-        <div className="JokeList">
-          <button className="JokeList-getmore" onClick={this.generateNewJokes}>
-            Get New Jokes
-          </button>
+    return (
+      <div className="JokeList">
+        <button
+          className="JokeList-getmore"
+          onClick={this.generateNewJokes}
+          disabled={allLocked || loading}
+        >
+          {allLocked ? "All Locked" : loading ? "Loading..." : "Get New Jokes"}
+        </button>
+        <button className="JokeList-getmore" onClick={this.resetVotes}>
+          Reset Vote Counts
+        </button>
 
-          {sortedJokes.map(j => (
-            <Joke text={j.joke} key={j.id} id={j.id} votes={j.votes} vote={this.vote} />
-          ))}
-        </div>
-      );
-    }
+        {sortedJokes.map(joke => (
+          <Joke
+            key={joke.id}
+            id={joke.id}
+            text={joke.text}
+            votes={joke.votes}
+            vote={this.vote}
+          />
+        ))}
 
-    return null;
+        {loading && (
+          <div className="loading">
+            <i className="fas fa-4x fa-spinner fa-spin" />
+          </div>
+        )}
+      </div>
+    );
   }
 }
 
